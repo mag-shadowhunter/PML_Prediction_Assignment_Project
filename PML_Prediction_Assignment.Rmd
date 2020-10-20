@@ -1,0 +1,148 @@
+---
+title: "PML_Prediction_Assignment"
+author: "Meghana Anumolu"
+date: "10/20/2020"
+output:
+  html_document:
+    keep_md: yes
+---
+
+```{r setup, echo = TRUE, warning=FALSE}
+knitr::opts_chunk$set
+
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(tidyverse)
+library(rattle)
+library(parallel)
+library(doParallel)
+library(e1071)
+library(randomForest)
+sessionInfo()
+
+set.seed(1)
+```
+
+## Data for the analysis
+
+URL for training data 
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+URL for test data
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+
+
+## Extracting Data
+
+```{r}
+rm(list=ls())
+
+url_1 <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download.file(url_1, destfile = "pml-training.csv")
+# download.file(url_2, destfile = "pml-testing.csv")
+
+loc <- paste(getwd(),"/", sep="")
+tr_file <- file.path(loc, "machine-train-data.csv")
+tst_file <- file.path(loc, "machine-test-data.csv")
+```
+
+
+## Reading files
+
+```{r}
+if (!file.exists(tr_file)) 
+        download.file(url_1, destfile=tr_file)
+
+if (!file.exists(tst_file)) 
+        download.file(url_2, destfile=tst_file)
+
+tr_data <- read.csv(tr_file, na.strings=c("NA","#DIV/0!",""))
+tst_data <- read.csv(tst_file, na.strings=c("NA","#DIV/0!",""))
+```
+
+##Obtaining tidy Data
+
+```{r}
+
+tr_data <- tr_data[,7:length(colnames(tr_data))]
+tst_data <- tst_data[,7:length(colnames(tst_data))]
+
+tr_data <- tr_data[, colSums(is.na(tr_data)) == 0] 
+tst_data <- tst_data[, colSums(is.na(tst_data)) == 0] 
+
+nzv <- nearZeroVar(tr_data,saveMetrics=TRUE)
+zv <- sum(nzv$nzv)
+if ((zv>0)) 
+        tr_data <- tr_data[,nzv$nzv==FALSE]
+
+```
+
+## Split the data in 70 and 30 ratio
+
+```{r}
+set.seed(100)
+tr <- createDataPartition(tr_data$classe, p=0.7, list=F)
+train <- tr_data[tr, ]
+test <- tr_data[-tr, ]
+
+```
+
+## Train a model using random forest algorithm
+
+```{r}
+
+cl <- makeCluster(detectCores() - 1) 
+
+# Register multi-core
+registerDoParallel(cl)
+
+#default resampling
+set.seed(1001)
+
+
+c_para <- trainControl(method="cv", 5)
+
+my_model_1 <- randomForest(classe ~ ., data = train,trControl=c_para,
+                        importance = TRUE, ntrees = 10)
+my_model_1
+
+saveRDS(my_model_1, "my_model_1.rds")
+
+##load rf model
+
+my_model_1 <- readRDS("my_model_1.rds")
+
+
+#Deregister multi-core
+stopCluster(cl)
+
+registerDoSEQ()
+
+      con <- file(getwd())
+      on.exit(close(con))
+
+```
+
+## Estimatation
+
+```{r}
+pred_bt <- predict(my_model_1, test)
+
+confusionMatrix(pred_bt, test$classe)
+
+```
+
+#Course Project Prediction Quiz
+
+### Apply the test data to the model
+
+```{r}
+test_result <- predict(my_model_1, 
+                   tst_data[, -length(names(tst_data))])
+test_result
+```
